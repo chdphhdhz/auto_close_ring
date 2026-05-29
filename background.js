@@ -10,23 +10,102 @@
 // chrome.runtime.onStartup.addListener(startKeepAlive);
 // chrome.runtime.onInstalled.addListener(startKeepAlive);
 
-let isRunning = false;
-let config = {
+const DEFAULT_CONFIG = {
     targetDomains: ["h5.ele.me"],
     minTime: 8,
     maxTime: 12,
     protectedIframe: "#baxia-dialog-content"
 };
+let isRunning = false;
+let config = { ...DEFAULT_CONFIG };
 const tabTimers = {};
 let alertCheckTimer = null;
 const ICON_ON = "icon_on.png";
 const ICON_OFF = "icon_off.png";
 
 chrome.storage.local.get(["config", "isRunning"], (res) => {
-    if (res.config) config = res.config;
+    if (res.config) config = sanitizeConfig(res.config);
     isRunning = false;
     setBadgeIcon();
 });
+
+function normalizeDomain(value) {
+    if (typeof value !== "string") return "";
+
+    const raw = value.trim().toLowerCase();
+    if (!raw) return "";
+
+    try {
+        const url = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+        return url.hostname.replace(/^\*\./, "").replace(/^\.+|\.+$/g, "");
+    } catch (e) {
+        return raw
+            .split(/[/?#]/)[0]
+            .split(":")[0]
+            .replace(/^\*\./, "")
+            .replace(/^\.+|\.+$/g, "");
+    }
+}
+
+function sanitizeConfig(data = {}) {
+    let minTime = Number.parseInt(data.minTime, 10);
+    let maxTime = Number.parseInt(data.maxTime, 10);
+
+    if (!Number.isFinite(minTime) || minTime <= 0) minTime = DEFAULT_CONFIG.minTime;
+    if (!Number.isFinite(maxTime) || maxTime <= 0) maxTime = DEFAULT_CONFIG.maxTime;
+    if (minTime > maxTime) [minTime, maxTime] = [maxTime, minTime];
+
+    const targetDomains = [...new Set(
+        (Array.isArray(data.targetDomains) ? data.targetDomains : DEFAULT_CONFIG.targetDomains)
+            .map(normalizeDomain)
+            .filter(Boolean)
+    )];
+
+    return {
+        targetDomains: targetDomains.length ? targetDomains : [...DEFAULT_CONFIG.targetDomains],
+        minTime,
+        maxTime,
+        protectedIframe: typeof data.protectedIframe === "string" && data.protectedIframe.trim()
+            ? data.protectedIframe.trim()
+            : DEFAULT_CONFIG.protectedIframe
+    };
+}
+
+function getTabHost(url) {
+    try {
+        return new URL(url).hostname.toLowerCase();
+    } catch (e) {
+        return "";
+    }
+}
+
+function isTargetHost(host) {
+    return config.targetDomains.some(domain => host === domain || host.endsWith(`.${domain}`));
+}
+
+function clearTabState(tabId, shouldRemoveCountdown = false) {
+    if (!tabTimers[tabId]) return;
+
+    clearTimeout(tabTimers[tabId].closeTimer);
+    clearInterval(tabTimers[tabId].checkInterval);
+    delete tabTimers[tabId];
+
+    if (shouldRemoveCountdown) removeCountdown(tabId);
+}
+
+async function hasProtectedIframe(tabId) {
+    try {
+        const [res] = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: s => !!document.querySelector(s),
+            args: [config.protectedIframe]
+        });
+        return !!(res && res.result);
+    } catch (e) {
+        clearTabState(tabId, true);
+        return null;
+    }
+}
 
 function setBadgeIcon() {
     if (isRunning) {
@@ -184,9 +263,7 @@ function stop() {
     if (alertCheckTimer) clearInterval(alertCheckTimer);
 
     for (let id in tabTimers) {
-        clearTimeout(tabTimers[id].closeTimer);
-        clearInterval(tabTimers[id].checkInterval);
-        removeCountdown(id);
+        clearTabState(id, true);
     }
 
     for (let k in tabTimers) delete tabTimers[k];
@@ -209,11 +286,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-    if (tabTimers[tabId]) {
-        clearTimeout(tabTimers[tabId].closeTimer);
-        clearInterval(tabTimers[tabId].checkInterval);
-        delete tabTimers[tabId];
-    }
+    clearTabState(tabId);
 });
 
 // 接收点击暂停的消息
@@ -223,9 +296,8 @@ chrome.runtime.onMessage.addListener((msg, _, resp) => {
         case "stop": stop(); resp(true); break;
         case "clearAutoOpenTimers": clearAllAutoOpenPagesTimer(); resp(true); break;
         case "updateConfig":
-            config = msg.data;
-            chrome.storage.local.set({ config });
-            resp(true);
+            config = sanitizeConfig(msg.data);
+            chrome.storage.local.set({ config }, () => resp(true));
             break;
         case "getStatus": resp({ isRunning, config }); break;
     }
@@ -238,8 +310,8 @@ chrome.runtime.onMessage.addListener((msg, _, resp) => {
 async function processTab(tabId, tab) {
     if (!tab.url) return;
     try {
-        const host = new URL(tab.url).hostname;
-        const domainMatch = config.targetDomains.some(d => host.includes(d));
+        const host = getTabHost(tab.url);
+        const domainMatch = isTargetHost(host);
         const isAutoOpen = tab.title && tab.title.startsWith("Auto Open");
 
         // 允许：匹配域名 或 Auto Open 页面
@@ -258,15 +330,12 @@ async function processTab(tabId, tab) {
 
         // 只对目标域名检测 iframe
         if (!domainMatch) return;
-        if (tabTimers[tabId]) return;
+        const currentState = tabTimers[tabId];
+        if (currentState && !currentState.alertOnly) return;
 
-        const [res] = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: s => !!document.querySelector(s),
-            args: [config.protectedIframe]
-        });
+        const hasIframe = await hasProtectedIframe(tabId);
+        if (hasIframe === null) return;
 
-        const hasIframe = res.result;
         if (hasIframe) {
             tabTimers[tabId] = { alertOnly: true };
             playBeep();
@@ -274,26 +343,28 @@ async function processTab(tabId, tab) {
             return;
         }
 
+        if (currentState && currentState.alertOnly) {
+            clearTabState(tabId, true);
+        }
+
         // 正常倒计时关闭
         const sec = Math.floor(Math.random() * (config.maxTime - config.minTime + 1)) + config.minTime;
-        chrome.scripting.executeScript({
+        await chrome.scripting.executeScript({
             target: { tabId },
             func: showCountdown,
             args: [sec]
         });
 
         const closeTimer = setTimeout(() => {
+            clearInterval(checkInterval);
             chrome.tabs.remove(tabId).catch(() => { });
             delete tabTimers[tabId];
         }, sec * 1000);
 
         const checkInterval = setInterval(async () => {
-            const [r] = await chrome.scripting.executeScript({
-                target: { tabId },
-                func: s => !!document.querySelector(s),
-                args: [config.protectedIframe]
-            });
-            if (r.result) {
+            const iframeVisible = await hasProtectedIframe(tabId);
+            if (iframeVisible === null) return;
+            if (iframeVisible) {
                 clearTimeout(closeTimer);
                 clearInterval(checkInterval);
                 removeCountdown(tabId);
@@ -320,19 +391,22 @@ function startAlertCheck() {
         for (let t of tabs) {
             if (!t.url) continue;
             try {
-                const host = new URL(t.url).hostname;
-                const dm = config.targetDomains.some(d => host.includes(d));
-                if (!dm) continue;
+                const host = getTabHost(t.url);
+                const dm = isTargetHost(host);
+                if (!dm || !t.id) continue;
 
-                const [r] = await chrome.scripting.executeScript({
-                    target: { tabId: t.id },
-                    func: s => !!document.querySelector(s),
-                    args: [config.protectedIframe]
-                });
-                if (r.result) {
+                const iframeVisible = await hasProtectedIframe(t.id);
+                if (iframeVisible === null) continue;
+
+                if (iframeVisible) {
                     hasAlert = true;
+                } else if (tabTimers[t.id] && tabTimers[t.id].alertOnly) {
+                    clearTabState(t.id, true);
+                    processTab(t.id, t);
                 }
-            } catch (e) { }
+            } catch (e) {
+                if (t.id) clearTabState(t.id, true);
+            }
         }
 
         // 只要检测到任意 iframe → 持续响铃

@@ -24,9 +24,10 @@ function updateStatusUI(running) {
 }
 
 startBtn.onclick = () => {
-    save();
-    chrome.runtime.sendMessage({ type: 'start' }, () => {
-        updateStatusUI(true);
+    save(() => {
+        chrome.runtime.sendMessage({ type: 'start' }, () => {
+            updateStatusUI(true);
+        });
     });
 };
 
@@ -36,7 +37,7 @@ stopBtn.onclick = () => {
     });
 };
 
-function save() {
+function save(done) {
     const list = domains.value.split(',').map(i => i.trim()).filter(Boolean);
     chrome.runtime.sendMessage({
         type: 'updateConfig',
@@ -46,5 +47,7 @@ function save() {
             maxTime: parseInt(max.value) || 11,
             protectedIframe: "#baxia-dialog-content"
         }
+    }, () => {
+        if (done) done();
     });
 }
