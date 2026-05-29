@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 340px;
+            padding: 16px;
+            margin: 0;
+            font-family: system-ui
+        }
+
+        .status {
+            padding: 8px;
+            text-align: center;
+            border-radius: 6px;
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .run {
+            background: #7b2cbf;
+        }
+
+        .stop {
+            background: #999;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px;
+            margin: 6px 0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer
+        }
+
+        .start {
+            background: #7b2cbf;
+            color: white
+        }
+
+        .stopBtn {
+            background: #fd3f3f;
+            color: white
+        }
+
+        .item {
+            margin: 12px 0
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600
+        }
+
+        input {
+            width: 100%;
+            padding: 7px;
+            border: 1px solid #ddd;
+            border-radius: 5px
+        }
+
+        .tip {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px
+        }
+    </style>
+</head>
+
+<body>
+    <div id="statusBar" class="status stop">当前状态：已停止</div>
+
+    <button id="start" class="btn start">启动</button>
+    <button id="stop" class="btn stopBtn">停止</button>
+
+    <div class="item">
+        <label>目标域名</label>
+        <input id="domains" placeholder="h5.ele.me">
+    </div>
+
+    <div class="item">
+        <label>关闭时间范围（秒）</label>
+        <input id="min" value="8">
+        <input id="max" value="11" style="margin-top:5px">
+        <div class="tip">每个页面随机时间，逐个关闭，不会一次性全关</div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
