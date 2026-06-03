@@ -3,6 +3,7 @@ const stopBtn = document.getElementById('stop');
 const domains = document.getElementById('domains');
 const min = document.getElementById('min');
 const max = document.getElementById('max');
+const protectedIframe = document.getElementById('protectedIframe');
 const statusBar = document.getElementById('statusBar');
 
 // 初始化状态
@@ -10,6 +11,7 @@ chrome.runtime.sendMessage({ type: 'getStatus' }, res => {
     domains.value = res.config.targetDomains.join(',');
     min.value = res.config.minTime;
     max.value = res.config.maxTime;
+    protectedIframe.value = res.config.protectedIframe;
     updateStatusUI(res.isRunning);
 });
 
@@ -45,7 +47,7 @@ function save(done) {
             targetDomains: list,
             minTime: parseInt(min.value) || 8,
             maxTime: parseInt(max.value) || 11,
-            protectedIframe: "#baxia-dialog-content"
+            protectedIframe: protectedIframe.value.trim()
         }
     }, () => {
         if (done) done();

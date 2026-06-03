@@ -7,7 +7,7 @@
 - 在目标站点页面上显示倒计时，并在随机秒数后关闭标签页。
 - 发现指定保护 iframe 时停止关闭逻辑、播放提示音，并清理相关自动打开页面的定时器。
 - 在页面右上角注入「停止插件」和「暂停打开」按钮，方便直接从网页中控制扩展行为。
-- 弹窗页提供启动、停止、目标域名和关闭时间范围配置。
+- 弹窗页提供启动、停止、目标域名、关闭时间范围和保护 iframe 选择器配置。
 
 当前默认目标域名是 `h5.ele.me`，默认保护 iframe 选择器是 `#baxia-dialog-content`。
 
@@ -17,8 +17,8 @@
 | --- | --- |
 | `manifest.json` | 扩展清单文件，声明 Manifest V3、权限、后台 service worker、弹窗和图标。 |
 | `background.js` | 当前实际生效的后台脚本，是扩展的核心逻辑入口。 |
-| `popup.html` | 扩展弹窗页面，包含状态栏、启动/停止按钮、目标域名和关闭时间输入框。 |
-| `popup.js` | 弹窗交互逻辑，负责读取状态、保存配置、发送启动/停止消息。 |
+| `popup.html` | 扩展弹窗页面，包含状态栏、启动/停止按钮、目标域名、关闭时间和保护 iframe 选择器输入框。 |
+| `popup.js` | 弹窗交互逻辑，负责读取状态、保存配置项、发送启动/停止消息。 |
 | `background 0525.js` | 历史版本后台脚本，包含较早的暂停 Auto Open、停止按钮和 iframe 检测实现。 |
 | `background_old.js` | 更早的后台脚本备份，实现基础倒计时关闭、iframe 告警和弹窗通信。 |
 | `icon.png` | 默认扩展图标。 |
@@ -133,8 +133,9 @@ for (let i = 0; i < 65536; i++) {
 - 如果最小值大于最大值，会自动交换。
 - 目标域名会去重。
 - 没有有效目标域名时回退到默认域名。
+- `protectedIframe` 使用弹窗里的 CSS 选择器输入框保存；为空时回退到默认值 `#baxia-dialog-content`。
 
-注意：`popup.js` 中保存配置时，`protectedIframe` 固定写为 `#baxia-dialog-content`，弹窗没有提供修改此选择器的输入项。
+注意：`popup.html` 中保护 iframe 选择器输入框的默认值是 `#baxia-dialog-content`，与 `background.js` 的 `DEFAULT_CONFIG.protectedIframe` 保持一致。
 
 ## 页面注入元素
 
@@ -191,5 +192,5 @@ for (let i = 0; i < 65536; i++) {
 - 修改目标域名匹配逻辑时，优先保留 `normalizeDomain`、`sanitizeConfig` 和 `isTargetHost` 的组合，避免误匹配。
 - 修改关闭逻辑时，要同时考虑 `closeTimer`、`checkInterval`、`alertOnly` 三类状态。
 - 修改页面注入 UI 时，注意不要让「停止插件」「暂停打开」和倒计时框相互重叠。
-- 如果要把 `protectedIframe` 做成可配置项，需要同步修改 `popup.html` 和 `popup.js`。
+- 修改 `protectedIframe` 配置链路时，需要同步检查 `background.js` 的默认值和清洗逻辑，以及 `popup.html`、`popup.js` 的输入、读取与保存逻辑。
 - 当前项目没有自动化测试；验证主要依赖在浏览器中手动加载扩展并观察目标页面行为。
